@@ -90,13 +90,23 @@ def load_llm():
     """
     Load the Gemini LLM via API
     """
-    # Get API key from environment variable
+    # Get API key from environment variable or Streamlit secrets
     gemini_api_key = os.getenv('GEMINI_API_KEY')
+    
+    # Try to get from Streamlit secrets if not in environment
+    if not gemini_api_key:
+        try:
+            import streamlit as st
+            if hasattr(st, 'secrets') and 'GEMINI_API_KEY' in st.secrets:
+                gemini_api_key = st.secrets['GEMINI_API_KEY']
+        except:
+            pass
     
     if not gemini_api_key:
         raise ValueError(
-            "GEMINI_API_KEY environment variable not set. "
-            "Please set it in your .env file or Streamlit secrets."
+            "GEMINI_API_KEY not found. "
+            "Local: Create a .env file with GEMINI_API_KEY=your-key. "
+            "Streamlit Cloud: Add GEMINI_API_KEY to App Settings → Secrets."
         )
     
     # Configure Gemini
