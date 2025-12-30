@@ -3,6 +3,10 @@ from utils import qa_pipeline
 
 import os
 import time
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 
 st.set_page_config(

@@ -2,11 +2,10 @@
 import os
 
 import faiss
-
-from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
+import google.generativeai as genai
 
 from langchain_core.prompts import PromptTemplate
-from langchain_community.llms.huggingface_pipeline import HuggingFacePipeline
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain.chains import RetrievalQA
@@ -89,111 +88,38 @@ def set_custom_prompt_template():
 # Return the LLM
 def load_llm():
     """
-    Load the LLM
+    Load the Gemini LLM via API
     """
-    # Model ID (can be overridden)
-    # Streamlit Cloud machines are usually RAM-limited.
-    # Prefer a small Meta Llama model if the user has HF access+token; otherwise fall back to public small models.
-    env_model_id = os.getenv('LLA_MODEL_ID', '').strip()
-    hf_token = os.getenv('HF_TOKEN') or os.getenv('HUGGINGFACEHUB_API_TOKEN')
-
-    prefer_meta = os.getenv('LLA_PREFER_META', '1').strip() in {'1', 'true', 'True', 'yes', 'YES'}
-    meta_candidate = 'meta-llama/Llama-3.2-1B-Instruct'
-
-    candidate_model_ids = [
-        env_model_id,
-        # Try Meta only if token is present (repo is typically gated).
-        meta_candidate if (prefer_meta and hf_token) else None,
-        # Prefer better instruction-following small models before ultra-tiny ones.
-        'Qwen/Qwen2.5-0.5B-Instruct',
-        'HuggingFaceTB/SmolLM2-135M-Instruct',
-        'sshleifer/tiny-gpt2',
-    ]
-    candidate_model_ids = [m for m in candidate_model_ids if m]
-
-    load_in_4bit = os.getenv('LLA_LOAD_IN_4BIT', '').strip() in {'1', 'true', 'True', 'yes', 'YES'}
-    device_map = os.getenv('LLA_DEVICE_MAP', 'cpu')
-
-    last_exc = None
-    for repo_id in candidate_model_ids:
-        try:
-            model = AutoModelForCausalLM.from_pretrained(
-                repo_id,
-                device_map=device_map,
-                load_in_4bit=load_in_4bit,
-                token=hf_token,
-                low_cpu_mem_usage=True,
-            )
-
-            tokenizer = AutoTokenizer.from_pretrained(
-                repo_id,
-                use_fast=True,
-                token=hf_token,
-            )
-            break
-        except Exception as exc:
-            last_exc = exc
-            message = str(exc)
-            if 'gated repo' in message.lower() or '401' in message or 'unauthorized' in message.lower():
-                # If user explicitly chose a gated model, fail fast with instructions.
-                if env_model_id and repo_id == env_model_id:
-                    raise RuntimeError(
-                        "Cannot download the Hugging Face model because it is gated or requires authentication. "
-                        "Fix: request access on the model page and then run `huggingface-cli login` (or set HF_TOKEN / HUGGINGFACEHUB_API_TOKEN). "
-                        f"Model: {repo_id}"
-                    ) from exc
-            continue
-    else:
-        raise RuntimeError(
-            "Failed to load any Hugging Face model. "
-            "Try setting LLA_MODEL_ID to a smaller public model, or provide HF_TOKEN if the model is gated. "
-            f"Last error: {last_exc}"
+    # Get API key from environment variable
+    gemini_api_key = os.getenv('GEMINI_API_KEY')
+    
+    if not gemini_api_key:
+        raise ValueError(
+            "GEMINI_API_KEY environment variable not set. "
+            "Please set it in your .env file or Streamlit secrets."
         )
-
-    # CPU defaults: keep generations short so responses don't take minutes.
-    max_new_tokens = int(os.getenv('LLA_MAX_NEW_TOKENS', '96'))
-    # On CPU, the first token can take a while; too-small max_time leads to empty output.
-    max_time = float(os.getenv('LLA_MAX_TIME', '60'))
-    do_sample = os.getenv('LLA_DO_SAMPLE', '').strip() in {'1', 'true', 'True', 'yes', 'YES'}
-
-    repetition_penalty = float(os.getenv('LLA_REPETITION_PENALTY', '1.12'))
-    no_repeat_ngram_size = int(os.getenv('LLA_NO_REPEAT_NGRAM', '4'))
-
-    # Some tokenizers (e.g., GPT-2 style) don't define a pad token.
-    pad_token_id = tokenizer.pad_token_id
-    if pad_token_id is None and tokenizer.eos_token_id is not None:
-        pad_token_id = tokenizer.eos_token_id
-
-    # Create pipeline
-    # IMPORTANT: use max_new_tokens (generated tokens) instead of max_length (prompt+generated)
-    # to avoid crashes when the prompt itself reaches the max_length.
-    generation_kwargs = {
-        'max_new_tokens': max_new_tokens,
-        'do_sample': do_sample,
-        'max_time': max_time,
-        'truncation': True,
-        'return_full_text': False,
-        'repetition_penalty': repetition_penalty,
-        'no_repeat_ngram_size': no_repeat_ngram_size,
-        'pad_token_id': pad_token_id,
-    }
-    if do_sample:
-        generation_kwargs.update({
-            'temperature': float(os.getenv('LLA_TEMPERATURE', '0.6')),
-            'top_p': float(os.getenv('LLA_TOP_P', '0.9')),
-            'top_k': int(os.getenv('LLA_TOP_K', '40')),
-        })
-
-    pipe = pipeline(
-        'text-generation',
-        model=model,
-        tokenizer=tokenizer,
-        **generation_kwargs,
+    
+    # Configure Gemini
+    genai.configure(api_key=gemini_api_key)
+    
+    # Get model name from env or use default
+    model_name = os.getenv('GEMINI_MODEL', 'gemini-1.5-flash')
+    
+    # Get temperature from env or use default
+    temperature = float(os.getenv('LLA_TEMPERATURE', '0.6'))
+    
+    # Get max tokens from env or use default
+    max_output_tokens = int(os.getenv('LLA_MAX_NEW_TOKENS', '512'))
+    
+    # Create LangChain wrapper for Gemini
+    llm = ChatGoogleGenerativeAI(
+        model=model_name,
+        google_api_key=gemini_api_key,
+        temperature=temperature,
+        max_output_tokens=max_output_tokens,
+        convert_system_message_to_human=True
     )
-
-    # Load the LLM
-    llm = HuggingFacePipeline(pipeline=pipe)
-
+    
     return llm
 
 # Return the chain
