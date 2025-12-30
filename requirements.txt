@@ -51,6 +51,7 @@ pydantic_core==2.23.4
 pydeck==0.9.1
 Pygments==2.19.1
 Pympler==1.1
+pypdf==5.1.0
 python-dateutil==2.9.0.post0
 pytz==2024.2
 pytz-deprecation-shim==0.1.0.post0

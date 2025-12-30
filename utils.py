@@ -1,6 +1,8 @@
 # Importing Dependencies
 import os
 
+import faiss
+
 from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 
 from langchain_core.prompts import PromptTemplate
@@ -11,6 +13,30 @@ from langchain.chains import RetrievalQA
 
 # Faiss Index Path
 FAISS_INDEX = "vectorstore/"
+
+
+def _detect_faiss_index_dim() -> int | None:
+    """Return the dimension `d` stored in vectorstore/index.faiss, if present."""
+    try:
+        index_path = os.path.join(FAISS_INDEX, "index.faiss")
+        if not os.path.exists(index_path):
+            return None
+        idx = faiss.read_index(index_path)
+        return int(getattr(idx, "d", 0) or 0) or None
+    except Exception:
+        return None
+
+
+def _default_embeddings_model_for_dim(dim: int | None) -> str:
+    # Known/common SentenceTransformer dims:
+    # - all-MiniLM-L6-v2 => 384
+    # - all-mpnet-base-v2 => 768
+    if dim == 384:
+        return "sentence-transformers/all-MiniLM-L6-v2"
+    if dim == 768:
+        return "sentence-transformers/all-mpnet-base-v2"
+    # If we can't detect (e.g., first run), prefer the smaller model for Cloud stability.
+    return "sentence-transformers/all-MiniLM-L6-v2"
 
 # Custom prompt template (model-agnostic)
 custom_prompt_template = """
@@ -56,16 +82,23 @@ def load_llm():
     Load the LLM
     """
     # Model ID (can be overridden)
-    # Streamlit Cloud machines are usually RAM-limited; default to a very small public model.
+    # Streamlit Cloud machines are usually RAM-limited.
+    # Prefer a small Meta Llama model if the user has HF access+token; otherwise fall back to public small models.
     env_model_id = os.getenv('LLA_MODEL_ID', '').strip()
+    hf_token = os.getenv('HF_TOKEN') or os.getenv('HUGGINGFACEHUB_API_TOKEN')
+
+    prefer_meta = os.getenv('LLA_PREFER_META', '1').strip() in {'1', 'true', 'True', 'yes', 'YES'}
+    meta_candidate = 'meta-llama/Llama-3.2-1B-Instruct'
+
     candidate_model_ids = [
         env_model_id,
+        # Try Meta only if token is present (repo is typically gated).
+        meta_candidate if (prefer_meta and hf_token) else None,
         'HuggingFaceTB/SmolLM2-135M-Instruct',
         'Qwen/Qwen2.5-0.5B-Instruct',
         'sshleifer/tiny-gpt2',
     ]
     candidate_model_ids = [m for m in candidate_model_ids if m]
-    hf_token = os.getenv('HF_TOKEN') or os.getenv('HUGGINGFACEHUB_API_TOKEN')
 
     load_in_4bit = os.getenv('LLA_LOAD_IN_4BIT', '').strip() in {'1', 'true', 'True', 'yes', 'YES'}
     device_map = os.getenv('LLA_DEVICE_MAP', 'cpu')
@@ -154,8 +187,13 @@ def qa_pipeline():
     """
     Create the QA pipeline
     """
-    # Load the HuggingFace embeddings
-    embeddings_model = os.getenv('LLA_EMBEDDINGS_MODEL', 'sentence-transformers/all-mpnet-base-v2')
+    # Load embeddings.
+    # IMPORTANT: embeddings vector dimension must match the FAISS index dimension.
+    env_embeddings_model = os.getenv('LLA_EMBEDDINGS_MODEL', '').strip()
+    if env_embeddings_model:
+        embeddings_model = env_embeddings_model
+    else:
+        embeddings_model = _default_embeddings_model_for_dim(_detect_faiss_index_dim())
     embeddings = HuggingFaceEmbeddings(model_name=embeddings_model)
 
     # Load the index

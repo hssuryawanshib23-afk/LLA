@@ -1,4 +1,6 @@
 # Importing Dependencies
+import os
+
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyPDFLoader, DirectoryLoader
 from langchain_community.embeddings import HuggingFaceEmbeddings
@@ -24,7 +26,9 @@ def embed_all():
     # Split the documents into chunks
     chunks = splitter.split_documents(documents)
     # Load the embeddings
-    embeddings = HuggingFaceEmbeddings()
+    # IMPORTANT: This must match the embeddings used at query time.
+    embeddings_model = os.getenv("LLA_EMBEDDINGS_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+    embeddings = HuggingFaceEmbeddings(model_name=embeddings_model)
     # Create the vector store
     vector_store = FAISS.from_documents(chunks, embeddings)
     # Save the vector store
