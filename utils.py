@@ -12,15 +12,31 @@ from langchain.chains import RetrievalQA
 # Faiss Index Path
 FAISS_INDEX = "vectorstore/"
 
-# Custom prompt template (model-agnostic; works across non-Llama instruct models too)
+# Custom prompt template (model-agnostic)
 custom_prompt_template = """
-You are a helpful assistant that answers questions about Indian law.
-Use the provided context when it is relevant. If the context does not contain the answer, say you are not sure.
+You are an assistant focused on Indian law and Indian legal procedure.
+
+Hard rules:
+- Stay within INDIA. Do not mention non-Indian institutions (e.g., "Employment Tribunal").
+- If the user question is outside India, ask which Indian state/central law they want, or say you can only answer for India.
+- Give a practical roadmap (what to do first, next, where to complain, what documents to keep).
+- Include relevant Indian law references (Act/Code name + section number) ONLY when you are confident.
+    If you are not confident about a section number, say "common relevant laws include ..." without inventing numbers.
+- Do NOT default to "consult a lawyer" / "seek legal advice". Only mention it if the user explicitly asks for professional help,
+    or if the situation is high-risk (arrest, violence, imminent deadlines), and then keep it short.
+- If the retrieved context conflicts with your knowledge, prefer the context.
+- If you don't know, say so.
+
+Write answers in this structure:
+1) Short answer (1–2 lines)
+2) Roadmap (numbered steps)
+3) Legal references (bullets)
+4) What to share next (1 question to clarify: state, worker type, salary frequency)
 
 Context:
 {context}
 
-Question: {question}
+User question: {question}
 
 Answer:
 """
@@ -109,7 +125,7 @@ def retrieval_qa_chain(llm, prompt, db):
     qa_chain = RetrievalQA.from_chain_type(
         llm=llm,
         chain_type='stuff',
-        retriever=db.as_retriever(search_kwargs={'k': 2}),
+        retriever=db.as_retriever(search_kwargs={'k': 4}),
         return_source_documents=True,
         chain_type_kwargs={'prompt': prompt}
     )
