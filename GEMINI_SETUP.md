@@ -30,8 +30,8 @@ pip install -r requirements.txt
 The `.env` file should already exist with your API key:
 
 ```env
-GEMINI_API_KEY=AIzaSyB9rohTgdUTWhXfqFNWE7Fcotus7ZdOjkw
-GEMINI_MODEL=gemini-1.5-flash
+GEMINI_API_KEY=your-api-key-here
+GEMINI_MODEL=gemini-pro
 LLA_TEMPERATURE=0.6
 LLA_MAX_NEW_TOKENS=512
 ```
@@ -52,17 +52,17 @@ When deploying to Streamlit Cloud:
    - Select your app → Settings → Secrets
    - Add this:
      ```toml
-     GEMINI_API_KEY = "AIzaSyB9rohTgdUTWhXfqFNWE7Fcotus7ZdOjkw"
-     GEMINI_MODEL = "gemini-1.5-flash"
+     GEMINI_API_KEY = "your-api-key-here"
+     GEMINI_MODEL = "gemini-pro"
      ```
 
 ## Model Options
 
 You can change the Gemini model in `.env`:
 
-- **gemini-1.5-flash** (default) - Fast, cheap, good quality
-- **gemini-1.5-pro** - Slower but best quality
-- **gemini-1.0-pro** - Older, cheaper
+- **gemini-pro** (default, recommended) - Stable, reliable, good quality
+- **gemini-1.5-pro** - Newer model with enhanced capabilities
+- **gemini-1.5-flash** - Fast but may not be available in all API versions
 
 ## Cost Estimate
 
