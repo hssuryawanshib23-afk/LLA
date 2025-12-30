@@ -71,18 +71,9 @@ def get_chain():
     return qa_pipeline()
 
 def main():
-    try:
-        chain = get_chain()
-    except Exception as exc:
-        st.error(
-            "Failed to initialize the model/QA pipeline. "
-            "If you're using a gated Hugging Face model (e.g. Llama-2), you must log in and/or set an access token.\n\n"
-            "Quick fixes:\n"
-            "- Use a public model: set env var LLA_MODEL_ID (e.g. TinyLlama/TinyLlama-1.1B-Chat-v1.0)\n"
-            "- Or authenticate: run `huggingface-cli login` or set HF_TOKEN / HUGGINGFACEHUB_API_TOKEN\n\n"
-            f"Details: {exc}"
-        )
-        return
+    # IMPORTANT: do NOT initialize the full QA pipeline at startup.
+    # Streamlit Cloud machines are often RAM-limited and can crash (no traceback)
+    # while downloading/loading models. We'll initialize lazily on first question.
 
     # Small one-time startup animation (per browser session)
     if "did_intro" not in st.session_state:
@@ -140,8 +131,9 @@ This app is a simple **RAG** (Retrieval‑Augmented Generation) chatbot.
                 _reset_chat()
                 st.rerun()
 
-        model_id = os.getenv('LLA_MODEL_ID', 'Qwen/Qwen2.5-0.5B-Instruct')
+        model_id = os.getenv('LLA_MODEL_ID', 'HuggingFaceTB/SmolLM2-135M-Instruct')
         st.caption(f"Model: {model_id}")
+        st.caption("First question may take longer (downloads model/index).")
 
         sample_prompts = [
             "Tell me about the Factories Act.",
@@ -195,13 +187,21 @@ This app is a simple **RAG** (Retrieval‑Augmented Generation) chatbot.
         with st.chat_message("assistant"):
             with st.spinner("Thinking..."):
                 try:
+                    chain = get_chain()
                     result = chain.invoke({"query": user_input})
                     bot_output = result.get("result", "")
                     sources = _format_sources(result.get("source_documents"))
                     if not bot_output.strip():
                         bot_output = "I couldn't generate an answer. Try a more specific question."
                 except Exception as exc:
-                    bot_output = f"Error while generating answer: {exc}"
+                    bot_output = (
+                        "Error while generating answer.\n\n"
+                        "If you're deploying on Streamlit Cloud, this is usually caused by model download/auth or RAM limits.\n\n"
+                        "Quick fixes:\n"
+                        "- Set a smaller public model via env var LLA_MODEL_ID\n"
+                        "- If the model is gated/private, set HF_TOKEN / HUGGINGFACEHUB_API_TOKEN\n\n"
+                        f"Details: {exc}"
+                    )
                     sources = []
             st.markdown(bot_output)
             if st.session_state.show_sources and sources:

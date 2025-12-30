@@ -56,38 +56,55 @@ def load_llm():
     Load the LLM
     """
     # Model ID (can be overridden)
-    # NOTE: Llama-2 is gated on Hugging Face and requires login + access.
-    # Default to a small, public instruct model that runs on CPU.
-    repo_id = os.getenv('LLA_MODEL_ID', 'Qwen/Qwen2.5-0.5B-Instruct')
+    # Streamlit Cloud machines are usually RAM-limited; default to a very small public model.
+    env_model_id = os.getenv('LLA_MODEL_ID', '').strip()
+    candidate_model_ids = [
+        env_model_id,
+        'HuggingFaceTB/SmolLM2-135M-Instruct',
+        'Qwen/Qwen2.5-0.5B-Instruct',
+        'sshleifer/tiny-gpt2',
+    ]
+    candidate_model_ids = [m for m in candidate_model_ids if m]
     hf_token = os.getenv('HF_TOKEN') or os.getenv('HUGGINGFACEHUB_API_TOKEN')
 
     load_in_4bit = os.getenv('LLA_LOAD_IN_4BIT', '').strip() in {'1', 'true', 'True', 'yes', 'YES'}
     device_map = os.getenv('LLA_DEVICE_MAP', 'cpu')
 
-    try:
-        # Load the model
-        model = AutoModelForCausalLM.from_pretrained(
-            repo_id,
-            device_map=device_map,
-            load_in_4bit=load_in_4bit,
-            token=hf_token,
-        )
+    last_exc = None
+    for repo_id in candidate_model_ids:
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                repo_id,
+                device_map=device_map,
+                load_in_4bit=load_in_4bit,
+                token=hf_token,
+                low_cpu_mem_usage=True,
+            )
 
-        # Load the tokenizer
-        tokenizer = AutoTokenizer.from_pretrained(
-            repo_id,
-            use_fast=True,
-            token=hf_token,
+            tokenizer = AutoTokenizer.from_pretrained(
+                repo_id,
+                use_fast=True,
+                token=hf_token,
+            )
+            break
+        except Exception as exc:
+            last_exc = exc
+            message = str(exc)
+            if 'gated repo' in message.lower() or '401' in message or 'unauthorized' in message.lower():
+                # If user explicitly chose a gated model, fail fast with instructions.
+                if env_model_id and repo_id == env_model_id:
+                    raise RuntimeError(
+                        "Cannot download the Hugging Face model because it is gated or requires authentication. "
+                        "Fix: request access on the model page and then run `huggingface-cli login` (or set HF_TOKEN / HUGGINGFACEHUB_API_TOKEN). "
+                        f"Model: {repo_id}"
+                    ) from exc
+            continue
+    else:
+        raise RuntimeError(
+            "Failed to load any Hugging Face model. "
+            "Try setting LLA_MODEL_ID to a smaller public model, or provide HF_TOKEN if the model is gated. "
+            f"Last error: {last_exc}"
         )
-    except Exception as exc:
-        message = str(exc)
-        if 'gated repo' in message.lower() or '401' in message or 'unauthorized' in message.lower():
-            raise RuntimeError(
-                "Cannot download the Hugging Face model because it is gated or requires authentication. "
-                "Fix: request access on the model page and then run `huggingface-cli login` (or set HF_TOKEN / HUGGINGFACEHUB_API_TOKEN). "
-                f"Model: {repo_id}"
-            ) from exc
-        raise
 
     # CPU defaults: keep generations short so responses don't take minutes.
     max_new_tokens = int(os.getenv('LLA_MAX_NEW_TOKENS', '96'))
