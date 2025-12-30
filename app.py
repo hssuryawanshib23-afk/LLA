@@ -66,6 +66,50 @@ def _reset_chat():
     st.session_state.messages = []
     st.session_state.pending_user_input = None
 
+
+def _static_answer(user_input: str) -> str | None:
+    q = (user_input or "").strip().lower()
+    if not q:
+        return None
+
+    # FIR: small local models frequently hallucinate foreign procedures.
+    if "fir" in q and ("file" in q or "register" in q or "lodge" in q):
+        return (
+            "1) Short answer\n"
+            "An FIR (First Information Report) is recorded by the police in India for a cognizable offence; you generally register it at a police station (not in court).\n\n"
+            "2) Roadmap\n"
+            "1. Write down the facts: date/time/place, what happened, names/phone numbers, and any evidence (photos, messages, CCTV).\n"
+            "2. Go to the local police station (or the station with jurisdiction) and ask to register an FIR. You can give it in writing; oral info must be written down and read back to you.\n"
+            "3. Ask for a free copy / acknowledgement and the FIR number.\n"
+            "4. If the police refuse to register: submit the complaint in writing to the Superintendent of Police (SP) / DCP.\n"
+            "5. If still no action: you can approach the Magistrate for directions to investigate.\n\n"
+            "3) Legal references\n"
+            "- CrPC: FIR for cognizable offences (commonly referenced as Section 154)\n"
+            "- Escalation to SP (commonly referenced as Section 154(3))\n"
+            "- Magistrate direction for investigation (commonly referenced as Section 156(3))\n\n"
+            "4) What to share next\n"
+            "Which state/city and what type of offence is it (theft, assault, cyber, harassment)?"
+        )
+
+    # Salary/wages delay: avoid non-Indian forums like Employment Tribunal.
+    if ("salary" in q or "wages" in q) and ("not paid" in q or "not paying" in q or "delay" in q or "late" in q):
+        return (
+            "1) Short answer\n"
+            "In India, unpaid/delayed salary is typically handled via internal escalation first, then a complaint to the local Labour Department / Labour Commissioner (process varies by state and your worker category).\n\n"
+            "2) Roadmap\n"
+            "1. Collect proof: offer/appointment letter, payslips, attendance, bank statements, emails/WhatsApp, resignation/notice (if any).\n"
+            "2. Send a written demand to HR/manager with amount + months due + a clear deadline.\n"
+            "3. If no payment: file a complaint with your state Labour Department (Labour Commissioner / Assistant Labour Commissioner).\n"
+            "4. If you are a ‘workman’ under labour law, you may also use the Industrial Disputes route (conciliation first).\n\n"
+            "3) Legal references\n"
+            "- Payment of Wages Act, 1936 (where applicable) / wage-payment rules under state law\n"
+            "- Industrial Disputes Act, 1947 (for ‘workman’ disputes; conciliation route)\n\n"
+            "4) What to share next\n"
+            "Which state, your job role (workman/managerial), and how many months of salary are pending?"
+        )
+
+    return None
+
 @st.cache_resource
 def get_chain():
     return qa_pipeline()
@@ -187,10 +231,15 @@ This app is a simple **RAG** (Retrieval‑Augmented Generation) chatbot.
         with st.chat_message("assistant"):
             with st.spinner("Thinking..."):
                 try:
-                    chain = get_chain()
-                    result = chain.invoke({"query": user_input})
-                    bot_output = result.get("result", "")
-                    sources = _format_sources(result.get("source_documents"))
+                    static = _static_answer(user_input)
+                    if static is not None:
+                        bot_output = static
+                        sources = []
+                    else:
+                        chain = get_chain()
+                        result = chain.invoke({"query": user_input})
+                        bot_output = result.get("result", "")
+                        sources = _format_sources(result.get("source_documents"))
                     if not bot_output.strip():
                         bot_output = "I couldn't generate an answer. Try a more specific question."
                 except Exception as exc:

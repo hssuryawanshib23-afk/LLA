@@ -42,6 +42,11 @@ def _default_embeddings_model_for_dim(dim: int | None) -> str:
 custom_prompt_template = """
 You are an assistant focused on Indian law and Indian legal procedure.
 
+India glossary (do not contradict):
+- FIR = First Information Report (India) — NOT “Informal/International/Foreign”. It is generally recorded at a police station (not filed in courts).
+- If police refuse to register, a common escalation is to approach the Superintendent of Police (SP) and/or the Magistrate.
+- Do NOT expand FIR as anything else (no US FISA/FBI meanings).
+
 Hard rules:
 - Stay within INDIA. Do not mention non-Indian institutions (e.g., "Employment Tribunal").
 - If the user question is outside India, ask which Indian state/central law they want, or say you can only answer for India.
@@ -52,6 +57,11 @@ Hard rules:
     or if the situation is high-risk (arrest, violence, imminent deadlines), and then keep it short.
 - If the retrieved context conflicts with your knowledge, prefer the context.
 - If you don't know, say so.
+
+Extra strictness:
+- Do NOT invent foreign procedures/courts (no “federal court”, no “Employment Tribunal”, no “High Court filing” for FIR).
+- An FIR is generally recorded at a POLICE STATION in India (not filed in courts).
+- If the provided context does not contain the answer, say: "Not found in the uploaded PDFs" and then give a short, careful general India-only explanation without citing section numbers.
 
 Write answers in this structure:
 1) Short answer (1–2 lines)
@@ -94,8 +104,9 @@ def load_llm():
         env_model_id,
         # Try Meta only if token is present (repo is typically gated).
         meta_candidate if (prefer_meta and hf_token) else None,
-        'HuggingFaceTB/SmolLM2-135M-Instruct',
+        # Prefer better instruction-following small models before ultra-tiny ones.
         'Qwen/Qwen2.5-0.5B-Instruct',
+        'HuggingFaceTB/SmolLM2-135M-Instruct',
         'sshleifer/tiny-gpt2',
     ]
     candidate_model_ids = [m for m in candidate_model_ids if m]
@@ -145,20 +156,39 @@ def load_llm():
     max_time = float(os.getenv('LLA_MAX_TIME', '60'))
     do_sample = os.getenv('LLA_DO_SAMPLE', '').strip() in {'1', 'true', 'True', 'yes', 'YES'}
 
+    repetition_penalty = float(os.getenv('LLA_REPETITION_PENALTY', '1.12'))
+    no_repeat_ngram_size = int(os.getenv('LLA_NO_REPEAT_NGRAM', '4'))
+
+    # Some tokenizers (e.g., GPT-2 style) don't define a pad token.
+    pad_token_id = tokenizer.pad_token_id
+    if pad_token_id is None and tokenizer.eos_token_id is not None:
+        pad_token_id = tokenizer.eos_token_id
+
     # Create pipeline
     # IMPORTANT: use max_new_tokens (generated tokens) instead of max_length (prompt+generated)
     # to avoid crashes when the prompt itself reaches the max_length.
+    generation_kwargs = {
+        'max_new_tokens': max_new_tokens,
+        'do_sample': do_sample,
+        'max_time': max_time,
+        'truncation': True,
+        'return_full_text': False,
+        'repetition_penalty': repetition_penalty,
+        'no_repeat_ngram_size': no_repeat_ngram_size,
+        'pad_token_id': pad_token_id,
+    }
+    if do_sample:
+        generation_kwargs.update({
+            'temperature': float(os.getenv('LLA_TEMPERATURE', '0.6')),
+            'top_p': float(os.getenv('LLA_TOP_P', '0.9')),
+            'top_k': int(os.getenv('LLA_TOP_K', '40')),
+        })
+
     pipe = pipeline(
         'text-generation',
         model=model,
         tokenizer=tokenizer,
-        max_new_tokens=max_new_tokens,
-        do_sample=do_sample,
-        temperature=float(os.getenv('LLA_TEMPERATURE', '0.7')),
-        top_p=float(os.getenv('LLA_TOP_P', '0.95')),
-        max_time=max_time,
-        truncation=True,
-        return_full_text=False,
+        **generation_kwargs,
     )
 
     # Load the LLM
