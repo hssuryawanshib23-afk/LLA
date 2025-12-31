@@ -113,8 +113,8 @@ def load_llm():
     genai.configure(api_key=gemini_api_key)
     
     # Get model name from env or use default
-    # Note: Use 'gemini-pro' for stable API, 'gemini-1.5-pro' for newer features
-    model_name = os.getenv('GEMINI_MODEL', 'gemini-pro')
+    # Use latest model names that work with v1beta API
+    model_name = os.getenv('GEMINI_MODEL', 'gemini-1.5-flash-latest')
     
     # Get temperature from env or use default
     temperature = float(os.getenv('LLA_TEMPERATURE', '0.6'))
@@ -123,11 +123,18 @@ def load_llm():
     max_output_tokens = int(os.getenv('LLA_MAX_NEW_TOKENS', '512'))
     
     # Try different model configurations if the primary fails
+    # Use -latest suffix for most up-to-date models
     model_fallback_list = [
         model_name,
-        'gemini-pro',
+        'gemini-1.5-flash-latest',
+        'gemini-1.5-pro-latest',
+        'gemini-1.5-flash',
         'gemini-1.5-pro',
     ]
+    
+    # Remove duplicates while preserving order
+    seen = set()
+    model_fallback_list = [x for x in model_fallback_list if not (x in seen or seen.add(x))]
     
     last_error = None
     for model_to_try in model_fallback_list:
@@ -144,16 +151,17 @@ def load_llm():
             return llm
         except Exception as e:
             last_error = e
-            if 'not found' in str(e).lower() or '404' in str(e):
+            error_msg = str(e).lower()
+            if 'not found' in error_msg or '404' in error_msg or 'not supported' in error_msg:
                 continue
             else:
                 raise
     
     # If all models fail, raise the last error
     raise RuntimeError(
-        f"Failed to load Gemini model. Last error: {last_error}. "
-        f"Available models usually include: gemini-pro, gemini-1.5-pro. "
-        f"Check your API key or try setting GEMINI_MODEL environment variable."
+        f"Failed to load any Gemini model. Last error: {last_error}. "
+        f"Tried models: {', '.join(model_fallback_list)}. "
+        f"Check your API key at https://makersuite.google.com/app/apikey or try setting GEMINI_MODEL environment variable."
     )
     
     return llm
