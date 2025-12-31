@@ -113,8 +113,8 @@ def load_llm():
     genai.configure(api_key=gemini_api_key)
     
     # Get model name from env or use default
-    # Use latest model names that work with v1beta API
-    model_name = os.getenv('GEMINI_MODEL', 'gemini-1.5-flash-latest')
+    # Use actual model names that exist in the API
+    model_name = os.getenv('GEMINI_MODEL', 'gemini-2.5-flash')
     
     # Get temperature from env or use default
     temperature = float(os.getenv('LLA_TEMPERATURE', '0.6'))
@@ -123,13 +123,14 @@ def load_llm():
     max_output_tokens = int(os.getenv('LLA_MAX_NEW_TOKENS', '512'))
     
     # Try different model configurations if the primary fails
-    # Use -latest suffix for most up-to-date models
+    # These are actual model names from genai.list_models()
     model_fallback_list = [
         model_name,
-        'gemini-1.5-flash-latest',
-        'gemini-1.5-pro-latest',
-        'gemini-1.5-flash',
-        'gemini-1.5-pro',
+        'gemini-2.5-flash',      # Newest, fast, good quality
+        'gemini-flash-latest',   # Alias to latest flash model
+        'gemini-2.5-pro',        # Highest quality
+        'gemini-pro-latest',     # Alias to latest pro model
+        'gemini-2.0-flash',      # Previous generation
     ]
     
     # Remove duplicates while preserving order
@@ -147,21 +148,23 @@ def load_llm():
                 max_output_tokens=max_output_tokens,
                 convert_system_message_to_human=True
             )
-            # Test if the model works with a simple call
+            # Return immediately on success
             return llm
         except Exception as e:
             last_error = e
             error_msg = str(e).lower()
+            # Continue trying if model not found
             if 'not found' in error_msg or '404' in error_msg or 'not supported' in error_msg:
                 continue
             else:
+                # For other errors, raise immediately
                 raise
     
     # If all models fail, raise the last error
     raise RuntimeError(
         f"Failed to load any Gemini model. Last error: {last_error}. "
         f"Tried models: {', '.join(model_fallback_list)}. "
-        f"Check your API key at https://makersuite.google.com/app/apikey or try setting GEMINI_MODEL environment variable."
+        f"Verify your API key at https://makersuite.google.com/app/apikey"
     )
     
     return llm
