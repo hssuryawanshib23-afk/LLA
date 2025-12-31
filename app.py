@@ -243,7 +243,13 @@ This app is a simple **RAG** (Retrieval‑Augmented Generation) chatbot.
                         chain = get_chain()
                         result = chain.invoke({"query": user_input})
                         bot_output = result.get("result", "")
-                        sources = _format_sources(result.get("source_documents"))
+                        
+                        # Only show sources if the answer actually used the PDFs
+                        # If the LLM says it wasn't found in PDFs, don't show irrelevant sources
+                        if "⚠️ NOT FOUND IN UPLOADED PDFs ⚠️" in bot_output or "not found in the uploaded pdfs" in bot_output.lower():
+                            sources = []
+                        else:
+                            sources = _format_sources(result.get("source_documents"))
                     if not bot_output.strip():
                         bot_output = "I couldn't generate an answer. Try a more specific question."
                 except Exception as exc:
